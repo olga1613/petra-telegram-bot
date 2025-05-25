@@ -7,12 +7,14 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
+import requests  # <--- для Bitrix
 
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("ASSISTANT_ID")
+BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL")  # <--- Bitrix URL
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -31,6 +33,25 @@ def write_to_sheet(name, text):
     date = datetime.now().strftime("%Y-%m-%d %H:%M")
     worksheet.append_row([name, text, date])
 
+# --- Bitrix ---
+def send_to_bitrix(name, phone, email, comment):
+    payload = {
+        "fields": {
+            "NAME": name,
+            "PHONE": [{"VALUE": phone}],
+            "EMAIL": [{"VALUE": email}],
+            "COMMENTS": comment,
+            "SOURCE_ID": "WEB"
+        }
+    }
+    try:
+        response = requests.post(BITRIX_WEBHOOK_URL, json=payload)
+        print("✅ Bitrix:", response.status_code)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Bitrix error: {e}")
+        return False
+
 # --- Обработка сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -42,6 +63,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         write_to_sheet(user_name, user_message)
     except Exception as e:
         print("Ошибка записи в таблицу:", e)
+
+    # Отправляем в Bitrix
+    try:
+        phone = "+79998887766"
+        email = "telegram@user.com"
+        send_to_bitrix(user_name, phone, email, user_message)
+    except Exception as e:
+        print("Ошибка Bitrix:", e)
 
     # AI-ответ
     thread = client.beta.threads.create()
