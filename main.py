@@ -46,9 +46,10 @@ def send_to_bitrix(name, phone, email, comment):
     }
     try:
         response = requests.post(BITRIX_WEBHOOK_URL, json=payload)
-        response.raise_for_status()
+        return response.status_code == 200
     except Exception as e:
-        print(f"Ошибка при отправке в Bitrix: {e}")
+        print(f"Bitrix error: {e}")
+        return False
 
 # --- AI-ответ от Петры Грей ---
 def ask_petra(user_message):
@@ -76,8 +77,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
 
     name = user.full_name or "Telegram User"
-    phone = "не указан"
-    email = "не указан"
+    phone = "+79998887766"
+    email = "telegram@user.com"
     comment = message_text
 
     write_to_sheet(name, message_text)
