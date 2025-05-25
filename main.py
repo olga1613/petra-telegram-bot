@@ -1,4 +1,3 @@
-
 import os
 import json
 from datetime import datetime
@@ -65,7 +64,8 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_state[chat_id] = {"stage": "ask_name"}
     greeting = (
-                "Здесь нет туров по шаблону — у нас живые приключения для умных и свободных.\n"
+        "Привет! Я Петра, ассистентка Ольги.\n"
+        "Здесь нет туров по шаблону — у нас живые приключения для умных и свободных.\n"
         "Если хочешь, помогу понять, подойдёт ли тебе такой формат, расскажу, как всё устроено и что интересного будет в ближайшее время.\n\n"
         "Можем просто поговорить 🙂\n"
         "Как тебя зовут, чтобы я знала, как обращаться?"
@@ -122,4 +122,4 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    app.run_polling()
+    app.run_polling() 
