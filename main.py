@@ -1,32 +1,48 @@
 import os
+import requests
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-from openai import OpenAI
-from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ASSISTANT_ID = os.getenv("ASSISTANT_ID")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+# --- Bitrix webhook (вставлен твой готовый) ---
+BITRIX_URL = "https://b24-lvtdlr.bitrix24.ru/rest/1/r58xfu33csoc2m4y/crm.lead.add.json"
 
+def send_to_bitrix(name, phone, email, comment):
+    payload = {
+        "fields": {
+            "NAME": name,
+            "PHONE": [{"VALUE": phone}],
+            "EMAIL": [{"VALUE": email}],
+            "COMMENTS": comment,
+            "SOURCE_ID": "WEB"
+        }
+    }
+    try:
+        response = requests.post(BITRIX_URL, json=payload)
+        return response.json()
+    except Exception as e:
+        print("Ошибка при отправке в Bitrix:", e)
+        return None
+
+# --- Обработка сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
-    thread = client.beta.threads.create()
-    client.beta.threads.messages.create(thread.id, role="user", content=user_message)
-    run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=ASSISTANT_ID)
+    user = update.message.from_user
+    message_text = update.message.text
 
-    while True:
-        run_status = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
-        if run_status.status == "completed":
-            break
+    name = user.full_name or "Telegram User"
+    phone = "+79998887766"  # Можем позже спрашивать у пользователя
+    email = "telegram@user.com"
+    comment = f"Сообщение из Telegram: {message_text}"
 
-    messages = client.beta.threads.messages.list(thread_id=thread.id)
-    reply = messages.data[0].content[0].text.value
-    await update.message.reply_text(reply)
+    send_to_bitrix(name, phone, email, comment)
 
+    await update.message.reply_text("Спасибо! Я передала твою заявку в Bitrix 💼")
+
+# --- Запуск бота ---
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
