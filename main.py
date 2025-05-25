@@ -2,12 +2,13 @@ import os
 import json
 from datetime import datetime
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 from openai import OpenAI
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
 import requests
+import asyncio
 
 load_dotenv()
 
@@ -57,19 +58,28 @@ def send_to_bitrix(name, phone, email, comment):
         print(f"❌ Bitrix error: {e}")
         return False
 
+# --- Приветствие при /start ---
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    greeting = (
+        "Привет! Я Петра, ассистентка Ольги.\n"
+        "Здесь нет туров по шаблону — у нас живые приключения для умных и свободных.\n"
+        "Если хочешь, помогу понять, подойдёт ли тебе такой формат, расскажу, как всё устроено и что интересного будет в ближайшее время.\n\n"
+        "Можем просто поговорить 🙂\n"
+        "Как тебя зовут, чтобы я знала, как обращаться?"
+    )
+    await update.message.reply_text(greeting)
+
 # --- Обработка сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_message = update.message.text
     user_name = user.full_name or "Telegram User"
 
-    # Сохраняем в таблицу
     try:
         write_to_sheet(user_name, user_message)
     except Exception as e:
         print("Ошибка записи в таблицу:", e)
 
-    # Отправляем в Bitrix, если ещё не отправляли
     try:
         if not user_already_registered(user_name):
             phone = "+79998887766"
@@ -78,7 +88,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print("Ошибка Bitrix:", e)
 
-    # AI-ответ
     thread = client.beta.threads.create()
     client.beta.threads.messages.create(thread.id, role="user", content=user_message)
     run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=ASSISTANT_ID)
@@ -87,6 +96,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         run_status = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
         if run_status.status == "completed":
             break
+        await asyncio.sleep(1)
 
     messages = client.beta.threads.messages.list(thread_id=thread.id)
     reply = messages.data[0].content[0].text.value
@@ -95,6 +105,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Запуск ---
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
-    app.add_handler(handler)
+    app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     app.run_polling()
