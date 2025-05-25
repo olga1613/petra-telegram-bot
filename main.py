@@ -1,3 +1,4 @@
+
 import os
 import json
 from datetime import datetime
@@ -18,6 +19,7 @@ ASSISTANT_ID = os.getenv("ASSISTANT_ID")
 BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+user_state = {}
 
 # --- Google Sheets ---
 def connect_to_sheet():
@@ -60,6 +62,8 @@ def send_to_bitrix(name, phone, email, comment):
 
 # --- Приветствие при /start ---
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    user_state[chat_id] = {"stage": "ask_name"}
     greeting = (
         "Привет! Я Петра, ассистентка Ольги.\n"
         "Здесь нет туров по шаблону — у нас живые приключения для умных и свободных.\n"
@@ -71,8 +75,20 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Обработка сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
     user = update.message.from_user
     user_message = update.message.text
+
+    if chat_id in user_state and user_state[chat_id].get("stage") == "ask_name":
+        user_name = user_message
+        user_state[chat_id]["name"] = user_name
+        user_state[chat_id]["stage"] = "chat"
+        await update.message.reply_text(
+            f"Красиво. Приятно познакомиться, {user_name} 🙂\n"
+            "Что тебе рассказать о нашем пространстве? Ты можешь задать любой вопрос."
+        )
+        return
+
     user_name = user.full_name or "Telegram User"
 
     try:
