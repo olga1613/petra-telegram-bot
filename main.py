@@ -30,24 +30,35 @@ def connect_to_sheet():
     worksheet = spreadsheet.sheet1
     return worksheet
 
-def write_to_sheet(name, text):
+def write_to_sheet(name, text, username, user_id):
     worksheet = connect_to_sheet()
     date = datetime.now().strftime("%Y-%m-%d %H:%M")
-    worksheet.append_row([name, text, date])
+    worksheet.append_row([name, text, date, username or "—", str(user_id), ""])
 
-def user_already_registered(name):
+def get_user_row_by_id(user_id):
     worksheet = connect_to_sheet()
-    users = worksheet.col_values(1)
-    return name in users
+    ids = worksheet.col_values(5)  # 5-я колонка — Telegram ID
+    for index, val in enumerate(ids):
+        if val == str(user_id):
+            return index + 1  # gspread строки начинаются с 1
+    return None
+
+def mark_sent_to_bitrix(row_index):
+    worksheet = connect_to_sheet()
+    worksheet.update_cell(row_index, 6, "Да")  # 6-я колонка — отметка о Bitrix
 
 # --- Bitrix ---
-def send_to_bitrix(name, phone, email, comment):
+def send_to_bitrix(name, phone, email, comment, username):
+    full_comment = f"Сообщение из Telegram: {comment}"
+    if username:
+        full_comment += f"\nНик: @{username}"
+
     payload = {
         "fields": {
             "NAME": name,
             "PHONE": [{"VALUE": phone}],
             "EMAIL": [{"VALUE": email}],
-            "COMMENTS": comment,
+            "COMMENTS": full_comment,
             "SOURCE_ID": "WEB"
         }
     }
@@ -77,6 +88,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user = update.message.from_user
     user_message = update.message.text
+    username = user.username or "—"
+    user_id = user.id
 
     if chat_id in user_state and user_state[chat_id].get("stage") == "ask_name":
         user_name = user_message
@@ -91,18 +104,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = user.full_name or "Telegram User"
 
     try:
-        write_to_sheet(user_name, user_message)
-    except Exception as e:
-        print("Ошибка записи в таблицу:", e)
+        row_index = get_user_row_by_id(user_id)
 
-    try:
-        if not user_already_registered(user_name):
-            phone = "+79998887766"
-            email = "telegram@user.com"
-            send_to_bitrix(user_name, phone, email, user_message)
-    except Exception as e:
-        print("Ошибка Bitrix:", e)
+        if row_index is None:
+            write_to_sheet(user_name, user_message, username, user_id)
+            send_to_bitrix(user_name, "+79998887766", "telegram@user.com", user_message, username)
+            row_index = get_user_row_by_id(user_id)
+            if row_index:
+                mark_sent_to_bitrix(row_index)
+        else:
+            worksheet = connect_to_sheet()
+            flag = worksheet.cell(row_index, 6).value
+            if flag != "Да":
+                send_to_bitrix(user_name, "+79998887766", "telegram@user.com", user_message, username)
+                mark_sent_to_bitrix(row_index)
 
+    except Exception as e:
+        print("Ошибка с Google Sheet или Bitrix:", e)
+
+    # AI-ответ
     thread = client.beta.threads.create()
     client.beta.threads.messages.create(thread.id, role="user", content=user_message)
     run = client.beta.threads.runs.create(thread_id=thread.id, assistant_id=ASSISTANT_ID)
@@ -122,4 +142,4 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    app.run_polling() 
+    app.run_polling()
