@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
@@ -70,6 +71,15 @@ def send_to_bitrix(name, phone, email, comment, username):
         print(f"❌ Bitrix error: {e}")
         return False
 
+# --- Извлечение имени ---
+def extract_name(text):
+    # Ищем первое имя с заглавной буквы, игнорируя слова типа "я", "меня зовут", "привет"
+    text = text.lower()
+    match = re.search(r"(?:я|меня зовут|привет|давай|это)?[\s,:-]*([А-ЯЁA-Z][а-яёa-z]+)", text, re.IGNORECASE)
+    if match:
+        return match.group(1).capitalize()
+    return text.strip().split()[0].capitalize()
+
 # --- Приветствие при /start ---
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -78,8 +88,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Привет! Я Петра, ассистентка Ольги.\n"
         "Здесь нет туров по шаблону — у нас живые приключения для умных и свободных.\n"
         "Если хочешь, помогу понять, подойдёт ли тебе такой формат, расскажу, как всё устроено и что интересного будет в ближайшее время.\n\n"
-        "Можем просто поговорить 🙂\n"
-        "Как тебя зовут, чтобы я знала, как обращаться?"
+        "Как тебя зовут?"
     )
     await update.message.reply_text(greeting)
 
@@ -91,36 +100,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = user.username or "—"
     user_id = user.id
 
+    # Извлекаем имя, если на этапе знакомства
     if chat_id in user_state and user_state[chat_id].get("stage") == "ask_name":
-        user_name = user_message
+        user_name = extract_name(user_message)
         user_state[chat_id]["name"] = user_name
         user_state[chat_id]["stage"] = "chat"
         await update.message.reply_text(
             f"Красиво. Приятно познакомиться, {user_name} 🙂\n"
             "Что тебе рассказать о нашем пространстве? Ты можешь задать любой вопрос."
         )
+        # Запись приветственного сообщения в таблицу
+        try:
+            write_to_sheet(user_name, user_message, username, user_id)
+        except Exception as e:
+            print("Ошибка записи в таблицу:", e)
         return
 
-    user_name = user.full_name or "Telegram User"
+    user_name = user_state.get(chat_id, {}).get("name") or user.full_name or "Telegram User"
 
+    # Всегда записываем в Google Таблицу
+    try:
+        write_to_sheet(user_name, user_message, username, user_id)
+    except Exception as e:
+        print("Ошибка записи в таблицу:", e)
+
+    # Отправляем в Bitrix только один раз
     try:
         row_index = get_user_row_by_id(user_id)
-
-        if row_index is None:
-            write_to_sheet(user_name, user_message, username, user_id)
-            send_to_bitrix(user_name, "+79998887766", "telegram@user.com", user_message, username)
-            row_index = get_user_row_by_id(user_id)
-            if row_index:
-                mark_sent_to_bitrix(row_index)
-        else:
+        if row_index is not None:
             worksheet = connect_to_sheet()
             flag = worksheet.cell(row_index, 6).value
             if flag != "Да":
                 send_to_bitrix(user_name, "+79998887766", "telegram@user.com", user_message, username)
                 mark_sent_to_bitrix(row_index)
-
+        else:
+            send_to_bitrix(user_name, "+79998887766", "telegram@user.com", user_message, username)
+            write_to_sheet(user_name, user_message, username, user_id)
+            new_index = get_user_row_by_id(user_id)
+            if new_index:
+                mark_sent_to_bitrix(new_index)
     except Exception as e:
-        print("Ошибка с Google Sheet или Bitrix:", e)
+        print("Ошибка Bitrix:", e)
 
     # AI-ответ
     thread = client.beta.threads.create()
